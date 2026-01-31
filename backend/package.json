@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "server": "node server.js"
   },
   "keywords": ["food", "quality", "inspection", "iot"],
   "author": "",

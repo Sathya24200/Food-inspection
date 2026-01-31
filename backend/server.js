@@ -43,6 +43,16 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Either stop the process using that port or set a different PORT environment variable before starting the app.`);
+        process.exit(1);
+    } else {
+        console.error('Server error:', err);
+        process.exit(1);
+    }
 });
