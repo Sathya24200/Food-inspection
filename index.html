@@ -5,6 +5,22 @@
     <meta http-equiv="refresh" content="0; url=/Food-inspection/docs/" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Redirecting…</title>
+      <link rel="stylesheet" href="assets/index-a44c4284.css">
+      <script>
+        // Simple error overlay for runtime exceptions on the published site
+        (function(){
+          try{
+            var o=document.createElement('div');
+            o.id='__error_overlay';
+            Object.assign(o.style,{position:'fixed',left:0,right:0,top:0,background:'#fee',color:'#000',padding:'10px',zIndex:2147483647,display:'none',fontFamily:'monospace',whiteSpace:'pre-wrap',maxHeight:'40vh',overflow:'auto'});
+            document.documentElement.appendChild(o);
+            window.__showError=function(msg){o.textContent=msg;o.style.display='block';};
+            window.addEventListener('error',function(e){console.error(e.error||e.message);window.__showError(String(e.error||e.message));});
+            window.addEventListener('unhandledrejection',function(e){console.error(e.reason);window.__showError(String(e.reason));});
+          }catch(err){console.error('overlay install failed',err);}    
+        })();
+      </script>
+      <script type="module" crossorigin src="assets/index-20a71f13.js"></script>
   </head>
   <body>
     <p>Redirecting to the app. If you are not redirected, <a href="/Food-inspection/docs/">click here</a>.</p>
