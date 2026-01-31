@@ -47,35 +47,42 @@ const Dashboard = () => {
 
     // ... (useEffect hooks remain same)
 
-    const analyzeImage = (imageSrc) => {
+    const analyzeImage = async (imageSrc) => {
         setIsAnalyzing(true);
         setError('');
         setAnalysisResult(null);
 
-        // Simulate AI Processing
-        setTimeout(() => {
-            // Mock AI Decision: 70% chance of being Sealed
+        try {
+            // Call the real Python AI service
+            const response = await axios.post('http://localhost:5001/predict', {
+                image: imageSrc
+            });
+
+            const data = response.data;
+            setIsSealed(data.isSealed);
+
+            setAnalysisResult({
+                status: data.status,
+                confidence: data.confidence,
+                color: data.isSealed ? '#2ecc71' : '#e74c3c'
+            });
+
+            setSuccess('AI Analysis Complete');
+            setTimeout(() => setSuccess(''), 2000);
+        } catch (err) {
+            console.error('AI Service Error:', err);
+            setError('AI Service not running. Using mock results.');
+            // Fallback to mock
             const aiIsSealed = Math.random() > 0.3;
-            // Also generate temp/weight if not exists
-            const aiTemp = (Math.random() * 25).toFixed(1);
-            const aiWeight = (Math.floor(Math.random() * 500) + 500).toString();
-
             setIsSealed(aiIsSealed);
-
-            // Only auto-fill sensors if they are empty
-            if (!temperature) setTemperature(aiTemp);
-            if (!weight) setWeight(aiWeight);
-
             setAnalysisResult({
                 status: aiIsSealed ? 'SEALED' : 'UNSEALED',
                 confidence: (Math.random() * (99 - 85) + 85).toFixed(1) + '%',
                 color: aiIsSealed ? '#2ecc71' : '#e74c3c'
             });
-
+        } finally {
             setIsAnalyzing(false);
-            setSuccess('AI Analysis Complete');
-            setTimeout(() => setSuccess(''), 2000);
-        }, 1500);
+        }
     };
 
     const handleFileUpload = (event) => {
@@ -99,20 +106,45 @@ const Dashboard = () => {
                 setArduinoConnected(true);
                 setSuccess('Arduino connected successfully!');
 
-                // Read loop
                 const textDecoder = new TextDecoderStream();
                 const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
                 const reader = textDecoder.readable.getReader();
 
+                let buffer = '';
                 try {
                     while (true) {
                         const { value, done } = await reader.read();
                         if (done) break;
-                        // Simple parser: Expecting "T:25,W:500,S:1" format
-                        // This is a basic example. Real parsing depends on Arduino sketch.
-                        console.log('Arduino Data:', value);
-                        if (value.includes('T:')) {
-                            // clean parsing logic would go here
+
+                        buffer += value;
+                        if (buffer.includes('\n')) {
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop(); // Keep incomplete line in buffer
+
+                            for (const line of lines) {
+                                const cleanLine = line.trim();
+                                if (!cleanLine) continue;
+
+                                console.log('Arduino Data:', cleanLine);
+
+                                // Expected formats: 
+                                // 1. "T:25.5,W:450,S:1"
+                                // 2. "25.5,450,1"
+
+                                if (cleanLine.includes('T:')) {
+                                    const parts = cleanLine.split(',');
+                                    parts.forEach(part => {
+                                        if (part.startsWith('T:')) setTemperature(part.split(':')[1]);
+                                        if (part.startsWith('W:')) setWeight(part.split(':')[1]);
+                                        if (part.startsWith('S:')) setIsSealed(part.split(':')[1] === '1');
+                                    });
+                                } else if (cleanLine.includes(',')) {
+                                    const [temp, wt, seal] = cleanLine.split(',');
+                                    if (temp) setTemperature(temp);
+                                    if (wt) setWeight(wt);
+                                    if (seal) setIsSealed(seal.trim() === '1');
+                                }
+                            }
                         }
                     }
                 } catch (error) {
@@ -124,6 +156,7 @@ const Dashboard = () => {
             } catch (err) {
                 console.error('Serial connection error:', err);
                 setError('Failed to connect to Arduino: ' + err.message);
+                setArduinoConnected(false);
             }
         } else {
             setError('Web Serial API not supported in this browser.');

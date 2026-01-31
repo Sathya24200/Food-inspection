@@ -25,3 +25,17 @@ bower_components/
 # Lock files (optional)
 # package-lock.json
 # yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env/
+
+# AI Models
+*.pt
+*.h5
+runs/
