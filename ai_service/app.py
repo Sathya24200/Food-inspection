@@ -46,37 +46,46 @@ def predict():
     is_sealed = False
     confidence = 0.0
     found_package = False
-    label = "UNKNOWN"
+    label = "NO_OBJECT" 
     
     for r in results:
         # Custom model classes: 0: sealed, 1: unsealed
         if len(r.boxes) > 0:
             # Get the detection with highest confidence
             top_box = sorted(r.boxes, key=lambda x: float(x.conf[0]), reverse=True)[0]
-            confidence = float(top_box.conf[0])
+            conf = float(top_box.conf[0])
             cls = int(top_box.cls[0])
+            class_name = yolo_model.names[cls]
             
-            # STRICTOR THRESHOLD: Require 50% confidence to consider it a "detected package"
-            if confidence > 0.5:
-                found_package = True
-                # If using custom model (2 classes)
+            print(f"DEBUG: Detected {class_name} with {conf:.2f} confidence")
+
+            # STEP 1: STRICT OBJECT FILTERING
+            # If base YOLO is loaded, skip 'person' (ID 0) to avoid face detection
+            if len(yolo_model.names) > 2 and cls == 0:
+                print("DEBUG: Skipping person detection...")
+                continue
+
+            # STEP 2: CONFIDENCE & PACKAGE CHECK
+            # We require > 0.6 confidence to reduce false positives
+            if conf > 0.6:
                 if len(yolo_model.names) <= 2:
+                    # Custom model logic
+                    found_package = True
+                    confidence = conf
                     is_sealed = (cls == 0)
                     label = "SEALED" if is_sealed else "UNSEALED"
                 else:
-                    # Fallback / Demo logic for base YOLO
-                    if cls in [39, 41, 45]:
-                        is_sealed = confidence > 0.6
+                    # Demo mode: Only accept specific food/package proxies
+                    # 39:bottle, 41:cup, 45:bowl, 47:apple, 48:sandwich...
+                    if cls in [39, 41, 45, 47, 48, 49, 50, 51]: 
+                        found_package = True
+                        confidence = conf
+                        # In demo mode, we use confidence to 'guess' status
+                        is_sealed = conf > 0.75 
                         label = "SEALED" if is_sealed else "UNSEALED"
-                    else:
-                        found_package = False # Not a proxy item
-            else:
-                # If confidence is low, it's safer to say UNKNOWN
-                found_package = False
-                label = "UNKNOWN"
 
     if not found_package:
-        label = "UNKNOWN"
+        label = "NO_OBJECT"
         is_sealed = False
         confidence = 0.0
 
@@ -90,4 +99,3 @@ def predict():
 
 if __name__ == '__main__':
     app.run(port=5001, debug=True)
-

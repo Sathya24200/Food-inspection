@@ -46,8 +46,6 @@ const Dashboard = () => {
     const fileInputRef = useRef(null);
     const analysisTimerRef = useRef(null);
 
-    // ... (useEffect hooks remain same)
-
     const analyzeImage = async (imageSrc, isRealtime = false) => {
         if (!isRealtime) {
             setIsAnalyzing(true);
@@ -62,7 +60,11 @@ const Dashboard = () => {
             });
 
             const data = response.data;
-            setIsSealed(data.isSealed);
+
+            // Only update the form state if a package was actually detected
+            if (data.packageDetected) {
+                setIsSealed(data.isSealed);
+            }
 
             setAnalysisResult({
                 status: data.status,
@@ -178,36 +180,41 @@ const Dashboard = () => {
         fetchInspections();
     }, []);
 
-    // Real-time analysis loop
+    // Video Stream & Real-time Analysis Management
     useEffect(() => {
-        if (cameraActive) {
-            // Attach stream to video element once it's rendered
-            if (videoRef.current && streamRef.current) {
-                videoRef.current.srcObject = streamRef.current;
+        let interval;
+        if (cameraActive && streamRef.current) {
+            const video = videoRef.current;
+            if (video) {
+                video.srcObject = streamRef.current;
+                // Force play after metadata is loaded
+                video.onloadedmetadata = () => {
+                    video.play().catch(err => console.error("Video play error:", err));
+                };
+                // Fallback direct play
+                video.play().catch(() => { });
             }
 
-            analysisTimerRef.current = setInterval(() => {
-                if (videoRef.current && canvasRef.current) {
+            interval = setInterval(async () => {
+                if (videoRef.current && canvasRef.current && videoRef.current.readyState === 4) {
                     const canvas = canvasRef.current;
                     const video = videoRef.current;
                     const context = canvas.getContext('2d');
+
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     context.drawImage(video, 0, 0);
+
                     const imageData = canvas.toDataURL('image/jpeg', 0.5);
-                    analyzeImage(imageData, true);
+                    await analyzeImage(imageData, true);
                 }
-            }, 1000); // Analyze every 1 second
-        } else {
-            if (analysisTimerRef.current) {
-                clearInterval(analysisTimerRef.current);
-            }
+            }, 800);
+        } else if (!cameraActive && videoRef.current) {
+            videoRef.current.srcObject = null;
         }
 
         return () => {
-            if (analysisTimerRef.current) {
-                clearInterval(analysisTimerRef.current);
-            }
+            if (interval) clearInterval(interval);
         };
     }, [cameraActive]);
 
@@ -239,17 +246,23 @@ const Dashboard = () => {
     };
 
     const startCamera = async () => {
-        setCapturedImage(null); // Clear previous capture
+        setCapturedImage(null);
         setAnalysisResult(null);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 },
+                video: { width: { ideal: 640 }, height: { ideal: 480 } },
             });
             streamRef.current = stream;
             setCameraActive(true);
             setError('');
+
+            // Fallback: Check if ref is already available
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(e => console.log("Play failed, handled by useEffect"));
+            }
         } catch (err) {
-            setError('Camera access denied. Please allow camera permissions.');
+            setError('Camera access denied or device not found.');
             console.error('Camera error:', err);
         }
     };
@@ -257,7 +270,7 @@ const Dashboard = () => {
     const stopCamera = () => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop());
-            videoRef.current.srcObject = null;
+            if (videoRef.current) videoRef.current.srcObject = null;
             streamRef.current = null;
         }
         setCameraActive(false);
@@ -446,56 +459,70 @@ const Dashboard = () => {
 
                         {/* Camera Section */}
                         <div className="camera-section">
-                            <div className="camera-container">
+                            <div className="camera-container" style={{ position: 'relative', background: '#000', overflow: 'hidden' }}>
+                                {/* Persistent Video Element */}
+                                <div className="camera-feed-container" style={{
+                                    position: 'relative',
+                                    width: '100%',
+                                    height: '100%',
+                                    display: cameraActive && !capturedImage ? 'block' : 'none'
+                                }}>
+                                    <video
+                                        ref={videoRef}
+                                        autoPlay
+                                        playsInline
+                                        muted
+                                        className="camera-feed"
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#000' }}
+                                    ></video>
+
+                                    {analysisResult && (
+                                        <div className="live-status-overlay" style={{
+                                            position: 'absolute',
+                                            top: '15px',
+                                            right: '15px',
+                                            background: analysisResult.status === 'NO_OBJECT' ? 'rgba(51, 65, 85, 0.8)' : analysisResult.color,
+                                            color: 'white',
+                                            padding: '8px 15px',
+                                            borderRadius: '20px',
+                                            fontWeight: 'bold',
+                                            zIndex: 10,
+                                            boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+                                            border: '2px solid white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '14px',
+                                            textTransform: 'uppercase'
+                                        }}>
+                                            {analysisResult.status === 'SEALED' ? <FaLock /> :
+                                                analysisResult.status === 'UNSEALED' ? <FaLockOpen /> :
+                                                    <FaMicrochip className="spin" />}
+
+                                            {analysisResult.status === 'NO_OBJECT' ? 'Searching for package...' :
+                                                `${analysisResult.status} (${analysisResult.confidence})`}
+                                        </div>
+                                    )}
+
+                                    <div className="scanning-line"></div>
+                                </div>
+
+                                {/* Placeholder */}
                                 {!cameraActive && !capturedImage && (
-                                    <div className="camera-placeholder">
+                                    <div className="camera-placeholder" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                         <FaCamera style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.5 }} />
                                         <p>Ready to Inspect</p>
                                     </div>
                                 )}
 
-                                {cameraActive && (
-                                    <div className="camera-feed-container" style={{ position: 'relative' }}>
-                                        <video
-                                            ref={videoRef}
-                                            autoPlay
-                                            playsInline
-                                            className="camera-feed"
-                                        ></video>
-
-                                        {analysisResult && (
-                                            <div className="live-status-overlay" style={{
-                                                position: 'absolute',
-                                                top: '15px',
-                                                right: '15px',
-                                                background: analysisResult.color,
-                                                color: 'white',
-                                                padding: '8px 15px',
-                                                borderRadius: '20px',
-                                                fontWeight: 'bold',
-                                                zIndex: 10,
-                                                boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
-                                                border: '2px solid white',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px'
-                                            }}>
-                                                {analysisResult.status === 'SEALED' ? <FaLock /> : <FaLockOpen />}
-                                                {analysisResult.status} ({analysisResult.confidence})
-                                            </div>
-                                        )}
-
-                                        <div className="scanning-line"></div>
-                                    </div>
-                                )}
-
+                                {/* Image Preview */}
                                 {capturedImage && (
-                                    <div className="image-preview-container" style={{ position: 'relative', display: 'inline-block' }}>
+                                    <div className="image-preview-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
                                         <img
                                             src={capturedImage}
                                             alt="Captured package"
                                             className="captured-image"
-                                            style={{ display: 'block', maxWidth: '100%' }}
+                                            style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
                                         />
 
                                         {isAnalyzing && (
@@ -527,15 +554,6 @@ const Dashboard = () => {
                                             }}>
                                                 {analysisResult.status} ({analysisResult.confidence})
                                             </div>
-                                        )}
-
-                                        {!isAnalyzing && analysisResult && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                top: 0, left: 0, right: 0, bottom: 0,
-                                                border: `4px solid ${analysisResult.color}`,
-                                                pointerEvents: 'none'
-                                            }}></div>
                                         )}
                                     </div>
                                 )}
@@ -579,7 +597,6 @@ const Dashboard = () => {
                                     <button
                                         onClick={() => {
                                             setCapturedImage(null);
-                                            // startCamera();
                                         }}
                                         className="btn btn-secondary"
                                     >
