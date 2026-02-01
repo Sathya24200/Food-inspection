@@ -7,17 +7,21 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import base64
 import io
+import os
 from PIL import Image
 
 app = Flask(__name__)
 CORS(app)
 
-# Load YOLOv8 model for package detection
-# In a real scenario, you'd use a fine-tuned model: yolo_model = YOLO('models/best.pt')
-yolo_model = YOLO('yolov8n.pt') 
-
-# Load CNN model for seal classification
-# seal_model = tf.keras.models.load_model('models/seal_classifier.h5')
+# Load YOLOv8 model
+# Try to load fine-tuned model first, fallback to base model
+MODEL_PATH = 'models/best.pt'
+if os.path.exists(MODEL_PATH):
+    print(f"Loading custom model from {MODEL_PATH}")
+    yolo_model = YOLO(MODEL_PATH)
+else:
+    print("Custom model not found, using base yolov8n.pt (Demo mode)")
+    yolo_model = YOLO('yolov8n.pt') 
 
 def base64_to_image(base64_string):
     if "," in base64_string:
@@ -36,44 +40,54 @@ def predict():
     
     img = base64_to_image(image_b64)
     
-    # 1. Detect Package using YOLO
+    # Run YOLO detection
     results = yolo_model(img)
     
-    is_sealed = True # Default
+    is_sealed = False
     confidence = 0.0
-    
-    # Mocking detection logic for demo if no fine-tuned model exists
-    # If using pre-trained yolov8n, 'bottle', 'cup', 'bowl' can be proxies for food packages
     found_package = False
-    for r in results:
-        for box in r.boxes:
-            conf = float(box.conf[0])
-            cls = int(box.cls[0])
-            # Proxy classes for food items in COCO
-            if cls in [39, 41, 45]: # bottle, cup, bowl
-                found_package = True
-                confidence = conf
-                
-                # 2. Extract ROI and run CNN (Mocked for now)
-                # x1, y1, x2, y2 = box.xyxy[0]
-                # roi = img[int(y1):int(y2), int(x1):int(x2)]
-                # prediction = seal_model.predict(roi)
-                # is_sealed = prediction > 0.5
-                
-                # For demo logic:
-                is_sealed = conf > 0.5 # Simplified
+    label = "UNKNOWN"
     
-    # Randomize for demo if no real objects found
-    if not found_package:
-        is_sealed = np.random.random() > 0.3
-        confidence = np.random.random() * 0.2 + 0.8
+    for r in results:
+        # Custom model classes: 0: sealed, 1: unsealed
+        if len(r.boxes) > 0:
+            # Get the detection with highest confidence
+            top_box = sorted(r.boxes, key=lambda x: float(x.conf[0]), reverse=True)[0]
+            confidence = float(top_box.conf[0])
+            cls = int(top_box.cls[0])
+            
+            # STRICTOR THRESHOLD: Require 50% confidence to consider it a "detected package"
+            if confidence > 0.5:
+                found_package = True
+                # If using custom model (2 classes)
+                if len(yolo_model.names) <= 2:
+                    is_sealed = (cls == 0)
+                    label = "SEALED" if is_sealed else "UNSEALED"
+                else:
+                    # Fallback / Demo logic for base YOLO
+                    if cls in [39, 41, 45]:
+                        is_sealed = confidence > 0.6
+                        label = "SEALED" if is_sealed else "UNSEALED"
+                    else:
+                        found_package = False # Not a proxy item
+            else:
+                # If confidence is low, it's safer to say UNKNOWN
+                found_package = False
+                label = "UNKNOWN"
 
+    if not found_package:
+        label = "UNKNOWN"
+        is_sealed = False
+        confidence = 0.0
+
+    # Final response
     return jsonify({
-        'status': 'SEALED' if is_sealed else 'UNSEALED',
+        'status': label,
         'isSealed': bool(is_sealed),
         'confidence': f"{confidence*100:.1f}%",
         'packageDetected': found_package
     })
 
 if __name__ == '__main__':
-    app.run(port=5001)
+    app.run(port=5001, debug=True)
+

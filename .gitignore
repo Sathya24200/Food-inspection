@@ -35,7 +35,13 @@ venv/
 env/
 .env/
 
-# AI Models
-*.pt
-*.h5
-runs/
+# AI Models & Data
+ai_service/runs/
+ai_service/dataset/
+ai_service/sealed_base_*.png
+ai_service/unsealed_base_*.png
+*.py[cod]
+__pycache__/
+
+# Keep only the production model
+!ai_service/models/best.pt

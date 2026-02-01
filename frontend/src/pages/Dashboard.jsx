@@ -44,13 +44,16 @@ const Dashboard = () => {
     const canvasRef = useRef(null);
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
+    const analysisTimerRef = useRef(null);
 
     // ... (useEffect hooks remain same)
 
-    const analyzeImage = async (imageSrc) => {
-        setIsAnalyzing(true);
+    const analyzeImage = async (imageSrc, isRealtime = false) => {
+        if (!isRealtime) {
+            setIsAnalyzing(true);
+            setAnalysisResult(null);
+        }
         setError('');
-        setAnalysisResult(null);
 
         try {
             // Call the real Python AI service
@@ -67,21 +70,27 @@ const Dashboard = () => {
                 color: data.isSealed ? '#2ecc71' : '#e74c3c'
             });
 
-            setSuccess('AI Analysis Complete');
-            setTimeout(() => setSuccess(''), 2000);
+            if (!isRealtime) {
+                setSuccess('AI Analysis Complete');
+                setTimeout(() => setSuccess(''), 2000);
+            }
         } catch (err) {
             console.error('AI Service Error:', err);
-            setError('AI Service not running. Using mock results.');
-            // Fallback to mock
-            const aiIsSealed = Math.random() > 0.3;
-            setIsSealed(aiIsSealed);
-            setAnalysisResult({
-                status: aiIsSealed ? 'SEALED' : 'UNSEALED',
-                confidence: (Math.random() * (99 - 85) + 85).toFixed(1) + '%',
-                color: aiIsSealed ? '#2ecc71' : '#e74c3c'
-            });
+            if (!isRealtime) {
+                setError('AI Service not running. Using mock results.');
+                // Fallback to mock
+                const aiIsSealed = Math.random() > 0.3;
+                setIsSealed(aiIsSealed);
+                setAnalysisResult({
+                    status: aiIsSealed ? 'SEALED' : 'UNSEALED',
+                    confidence: (Math.random() * (99 - 85) + 85).toFixed(1) + '%',
+                    color: aiIsSealed ? '#2ecc71' : '#e74c3c'
+                });
+            }
         } finally {
-            setIsAnalyzing(false);
+            if (!isRealtime) {
+                setIsAnalyzing(false);
+            }
         }
     };
 
@@ -169,6 +178,39 @@ const Dashboard = () => {
         fetchInspections();
     }, []);
 
+    // Real-time analysis loop
+    useEffect(() => {
+        if (cameraActive) {
+            // Attach stream to video element once it's rendered
+            if (videoRef.current && streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+            }
+
+            analysisTimerRef.current = setInterval(() => {
+                if (videoRef.current && canvasRef.current) {
+                    const canvas = canvasRef.current;
+                    const video = videoRef.current;
+                    const context = canvas.getContext('2d');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.5);
+                    analyzeImage(imageData, true);
+                }
+            }, 1000); // Analyze every 1 second
+        } else {
+            if (analysisTimerRef.current) {
+                clearInterval(analysisTimerRef.current);
+            }
+        }
+
+        return () => {
+            if (analysisTimerRef.current) {
+                clearInterval(analysisTimerRef.current);
+            }
+        };
+    }, [cameraActive]);
+
     // Cleanup camera on unmount
     useEffect(() => {
         return () => {
@@ -197,11 +239,12 @@ const Dashboard = () => {
     };
 
     const startCamera = async () => {
+        setCapturedImage(null); // Clear previous capture
+        setAnalysisResult(null);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: 640, height: 480 },
             });
-            videoRef.current.srcObject = stream;
             streamRef.current = stream;
             setCameraActive(true);
             setError('');
@@ -406,18 +449,44 @@ const Dashboard = () => {
                             <div className="camera-container">
                                 {!cameraActive && !capturedImage && (
                                     <div className="camera-placeholder">
-                                        <FaCamera />
-                                        <p>Click "Start Camera" to begin</p>
+                                        <FaCamera style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.5 }} />
+                                        <p>Ready to Inspect</p>
                                     </div>
                                 )}
 
                                 {cameraActive && (
-                                    <video
-                                        ref={videoRef}
-                                        autoPlay
-                                        playsInline
-                                        className="camera-feed"
-                                    ></video>
+                                    <div className="camera-feed-container" style={{ position: 'relative' }}>
+                                        <video
+                                            ref={videoRef}
+                                            autoPlay
+                                            playsInline
+                                            className="camera-feed"
+                                        ></video>
+
+                                        {analysisResult && (
+                                            <div className="live-status-overlay" style={{
+                                                position: 'absolute',
+                                                top: '15px',
+                                                right: '15px',
+                                                background: analysisResult.color,
+                                                color: 'white',
+                                                padding: '8px 15px',
+                                                borderRadius: '20px',
+                                                fontWeight: 'bold',
+                                                zIndex: 10,
+                                                boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+                                                border: '2px solid white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
+                                            }}>
+                                                {analysisResult.status === 'SEALED' ? <FaLock /> : <FaLockOpen />}
+                                                {analysisResult.status} ({analysisResult.confidence})
+                                            </div>
+                                        )}
+
+                                        <div className="scanning-line"></div>
+                                    </div>
                                 )}
 
                                 {capturedImage && (
@@ -485,14 +554,14 @@ const Dashboard = () => {
                                 />
 
                                 {!cameraActive && !capturedImage && (
-                                    <>
-                                        <button onClick={startCamera} className="btn btn-primary">
+                                    <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                                        <button onClick={startCamera} className="btn btn-primary" style={{ flex: 1 }}>
                                             <FaCamera /> Start Camera
                                         </button>
-                                        <button onClick={() => fileInputRef.current.click()} className="btn btn-secondary" style={{ marginLeft: '10px' }}>
-                                            <FaFileUpload /> Upload
+                                        <button onClick={() => fileInputRef.current.click()} className="btn btn-secondary" style={{ flex: 1 }}>
+                                            <FaFileUpload /> Upload Image
                                         </button>
-                                    </>
+                                    </div>
                                 )}
 
                                 {cameraActive && (
